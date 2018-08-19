@@ -42,6 +42,7 @@ var epochData struct {
 	_    machine.Pad56
 
 	// keep track of entries
+	// TODO(jeff): make this a pointer so that we can ensure cache aligned backing?
 	entries [machine.MaxThreads]entry
 
 	// keep track of triggers
