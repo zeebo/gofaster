@@ -1,37 +1,41 @@
 package epoch
 
 import (
-	"unsafe"
+	"sync/atomic"
 
 	"github.com/zeebo/gofaster/internal/machine"
 )
 
-const (
-	phaseEmpty uint32 = iota
-	phasePrepIndexCheckpoint
-	phaseIndexCheckpoint
-	phasePrepare
-	phaseInProgress
-	phaseWaitPending
-	phaseWaitFlush
-	phaseRest
-	phasePersistenceCallback
-	phaseGCIOPending
-	phaseGCInProgress
-	phaseGrowPrepare
-	phaseGrowInProgress
-)
-
-// Handle is required to interact with the Epoch system. It should be used from one
-// goroutine at a time, hopefully on the same thread.
-type Handle struct {
-	local     uint64
-	reentrant uint32
-	phase     uint32
-	_         machine.Pad48
+var handleData struct {
+	next uint32
+	used [machine.MaxThreads]uint32
 }
 
-type ( // assert same size as a cache line
-	_ [machine.CacheLine - unsafe.Sizeof(Handle{})]byte
-	_ [unsafe.Sizeof(Handle{}) - machine.CacheLine]byte
-)
+// Handle represents a thread handle. It should not cross threads for maximum performance.
+type Handle struct {
+	id uint32
+}
+
+// AcquireHandle acquires a unique Handle for the thread.
+func AcquireHandle() Handle {
+	start := atomic.AddUint32(&handleData.next, 1)
+	end := start + machine.MaxThreads*2
+
+retry:
+	if start == end {
+		panic("too many thread handles")
+	}
+	id := start % machine.MaxThreads
+
+	if !atomic.CompareAndSwapUint32(&handleData.used[id], 0, 1) {
+		start++
+		goto retry
+	}
+
+	return Handle{id: id}
+}
+
+// ReleaseHandle releases the handle for the thread, letting it be used by other threads.
+func ReleaseHandle(h Handle) {
+	atomic.StoreUint32(&handleData.used[h.id%machine.MaxThreads], 0)
+}
