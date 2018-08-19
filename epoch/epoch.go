@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zeebo/gofaster/machine"
+	"github.com/zeebo/gofaster/internal/machine"
 )
 
 const (
@@ -81,6 +81,9 @@ func (e *Epoch) AcquireAndDrain() *Handle {
 
 // Release returns the Handle back to the Epoch so that it may be reused.
 func (e *Epoch) Release(h *Handle) {
+	// reset the other fields of the handle for next acquire
+	h.phase = 0
+	h.reentrant = 0
 	atomic.StoreUint64(&h.local, 0)
 }
 

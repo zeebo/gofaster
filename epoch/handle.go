@@ -3,11 +3,12 @@ package epoch
 import (
 	"unsafe"
 
-	"github.com/zeebo/gofaster/machine"
+	"github.com/zeebo/gofaster/internal/machine"
 )
 
 const (
-	phasePrepIndexCheckpoint uint32 = iota
+	phaseEmpty uint32 = iota
+	phasePrepIndexCheckpoint
 	phaseIndexCheckpoint
 	phasePrepare
 	phaseInProgress
@@ -26,7 +27,7 @@ const (
 type Handle struct {
 	local     uint64
 	reentrant uint32
-	phase     uint32 // TODO(jeff): typed constants
+	phase     uint32
 	_         machine.Pad48
 }
 
