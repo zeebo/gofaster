@@ -9,24 +9,27 @@ const (
 	triggerLocked = ^uint64(0) - 1
 )
 
-type Trigger struct {
+type trigger struct {
 	epoch  uint64
 	action func()
 }
 
-// Epoch returns the current epoch on the Trigger.
-func (t *Trigger) Epoch() uint64 {
+// newTrigger constructs a new trigger to use.
+func newTrigger() trigger { return trigger{epoch: triggerFree} }
+
+// Epoch returns the current epoch on the trigger.
+func (t *trigger) Epoch() uint64 {
 	return atomic.LoadUint64(&t.epoch)
 }
 
 // Free returns true if the trigger is free for a Store.
-func (t *Trigger) Free() bool {
+func (t *trigger) Free() bool {
 	return atomic.LoadUint64(&t.epoch) == triggerFree
 }
 
-// Run attempts to run the action stored in the Trigger but only
+// Run attempts to run the action stored in the trigger but only
 // if the epoch matches. It returns true if the action was run.
-func (t *Trigger) Run(epoch uint64) bool {
+func (t *trigger) Run(epoch uint64) bool {
 	if !atomic.CompareAndSwapUint64(&t.epoch, epoch, triggerLocked) {
 		return false
 	}
@@ -43,7 +46,7 @@ func (t *Trigger) Run(epoch uint64) bool {
 
 // Store attempts to store the action to be run after the given
 // epoch, and returns true if it was able to store it.
-func (t *Trigger) Store(epoch uint64, action func()) bool {
+func (t *trigger) Store(epoch uint64, action func()) bool {
 	if !atomic.CompareAndSwapUint64(&t.epoch, triggerFree, triggerLocked) {
 		return false
 	}
@@ -55,10 +58,10 @@ func (t *Trigger) Store(epoch uint64, action func()) bool {
 	return true
 }
 
-// Swap attempts to swap the action stored in the Trigger with the new action,
+// Swap attempts to swap the action stored in the trigger with the new action,
 // running any old action if the epoch matches. It returns true if the swap
 // was performed.
-func (t *Trigger) Swap(epoch, new_epoch uint64, new_action func()) bool {
+func (t *trigger) Swap(epoch, new_epoch uint64, new_action func()) bool {
 	if !atomic.CompareAndSwapUint64(&t.epoch, epoch, new_epoch) {
 		return false
 	}

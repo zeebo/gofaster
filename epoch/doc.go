@@ -1,2 +1,2 @@
-// package epoch provides an epoch system that can run callbacks.
+// package epoch does some stuff lol
 package epoch

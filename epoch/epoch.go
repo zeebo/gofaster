@@ -13,58 +13,35 @@ import (
 // necessary. can they be relaxed, and will the race detector complain?
 
 const (
-	phaseEmpty uint32 = iota
-	phasePrepIndexCheckpoint
-	phaseIndexCheckpoint
-	phasePrepare
-	phaseInProgress
-	phaseWaitPending
-	phaseWaitFlush
-	phaseRest
-	phasePersistenceCallback
-	phaseGCIOPending
-	phaseGCInProgress
-	phaseGrowPrepare
-	phaseGrowInProgress
-)
-
-const (
-	epochDrainEntries = 256
+	epochMaxTriggers = 256
 )
 
 var epochData struct {
 	// keep track of the current epoch
 	current uint64
-	_       machine.Pad56
+	_       [56]uint8
 
 	// keep track of which epoch is safe
 	safe uint64
-	_    machine.Pad56
+	_    [56]uint8
 
 	// keep track of entries
-	// TODO(jeff): make this a pointer so that we can ensure cache aligned backing?
 	entries [machine.MaxThreads]entry
 
 	// keep track of triggers
 	trigger_count uint64
-	_             machine.Pad56
-	triggers      [epochDrainEntries]Trigger
+	_             [56]uint8
+	triggers      [epochMaxTriggers]trigger
 }
 
 func init() {
 	epochData.current = 1
 	for i := range &epochData.triggers {
-		epochData.triggers[i].epoch = triggerFree
+		epochData.triggers[i] = newTrigger()
 	}
 }
 
-type entry struct {
-	local     uint64
-	reentrant uint32
-	phase     uint32
-	_         machine.Pad48
-}
-
+// getEntry returns the entry bound to the handle.
 func getEntry(h Handle) *entry {
 	return &epochData.entries[h.id%machine.MaxThreads]
 }
@@ -85,17 +62,6 @@ func ProtectAndDrain(h Handle) uint64 {
 	return epoch
 }
 
-// ReentrantProtect is like Protect but reentrant.
-func ReentrantProtect(h Handle) uint64 {
-	entry := getEntry(h)
-	if entry.local != 0 {
-		return entry.local
-	}
-	entry.local = atomic.LoadUint64(&epochData.current)
-	entry.reentrant++
-	return entry.local
-}
-
 // IsProtected returns if the handle is in the protected region.
 func IsProtected(h Handle) bool {
 	entry := getEntry(h)
@@ -106,15 +72,6 @@ func IsProtected(h Handle) bool {
 func Unprotect(h Handle) {
 	entry := getEntry(h)
 	entry.local = 0
-}
-
-// ReentrantUnprotect exits the protected region from ReentrantProtect.
-func ReentrantUnprotect(h Handle) {
-	entry := getEntry(h)
-	entry.reentrant--
-	if entry.reentrant == 0 {
-		entry.local = 0
-	}
 }
 
 // Drain runs any triggers that are safe to run. The provided epoch is used as an

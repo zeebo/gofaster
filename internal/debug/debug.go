@@ -1,8 +1,8 @@
 // +build !release
 
-package assert
+package debug
 
-func That(info string, fn func() bool) {
+func Assert(info string, fn func() bool) {
 	if !fn() {
 		panic("assertion failed: " + info)
 	}

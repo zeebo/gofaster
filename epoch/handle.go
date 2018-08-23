@@ -11,7 +11,8 @@ var handleData struct {
 	used [machine.MaxThreads]uint32
 }
 
-// Handle represents a thread handle. It should not cross threads for maximum performance.
+// Handle represents a thread handle. It should not cross threads for maximum performance. Calls
+// involving the same Handle must not happen concurrently.
 type Handle struct {
 	id uint32
 }
