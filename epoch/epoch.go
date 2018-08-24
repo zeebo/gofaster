@@ -41,14 +41,14 @@ func init() {
 	}
 }
 
-// getEntry returns the entry bound to the handle.
-func getEntry(h Handle) *entry {
-	return &epochData.entries[h.id%machine.MaxThreads]
+// getEntry returns the entry bound to the given handle id.
+func getEntry(id uint32) *entry {
+	return &epochData.entries[id%machine.MaxThreads]
 }
 
 // Protect enters the protected region of the epoch.
 func Protect(h Handle) uint64 {
-	entry := getEntry(h)
+	entry := getEntry(h.Id())
 	entry.local = atomic.LoadUint64(&epochData.current)
 	return entry.local
 }
@@ -64,13 +64,13 @@ func ProtectAndDrain(h Handle) uint64 {
 
 // IsProtected returns if the handle is in the protected region.
 func IsProtected(h Handle) bool {
-	entry := getEntry(h)
+	entry := getEntry(h.Id())
 	return entry.local != 0
 }
 
 // Unprotect exits the protected region.
 func Unprotect(h Handle) {
-	entry := getEntry(h)
+	entry := getEntry(h.Id())
 	entry.local = 0
 }
 

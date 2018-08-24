@@ -3,9 +3,9 @@ package epoch
 import "testing"
 
 func BenchmarkEpoch(b *testing.B) {
-	b.ReportAllocs()
-
 	b.Run("Protect+Unprotect", func(b *testing.B) {
+		b.ReportAllocs()
+
 		h := AcquireHandle()
 		defer ReleaseHandle(h)
 
@@ -19,6 +19,8 @@ func BenchmarkEpoch(b *testing.B) {
 
 	b.Run("Protect+Unprotect Parallel", func(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
+			b.ReportAllocs()
+
 			h := AcquireHandle()
 			defer ReleaseHandle(h)
 

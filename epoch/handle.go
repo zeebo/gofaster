@@ -17,6 +17,9 @@ type Handle struct {
 	id uint32
 }
 
+// Id returns a numeric id that uniquely identifies the handle.
+func (h Handle) Id() uint32 { return h.id }
+
 // AcquireHandle acquires a unique Handle for the thread.
 func AcquireHandle() Handle {
 	start := atomic.AddUint32(&handleData.next, 1)
