@@ -4,7 +4,6 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/zeebo/gofaster/internal/debug"
 	"github.com/zeebo/gofaster/internal/machine"
 )
 
@@ -14,12 +13,17 @@ const (
 
 // buffer keeps track of pinned items per thread.
 type buffer struct {
-	unpinned unsafe.Pointer   // linked list of unpinned locations
-	data     []unsafe.Pointer // buffer of pinned items
-	start    uint64           // start index into data for adding.
-	free     uint64           // amount free, used for resizing.
-	mask     uint64           // mask for modulo indexing into data
-	bits     uint64           // number of bits in the mask
+	// linked list of unpinned locations. atomic/concurrent
+	unpinned unsafe.Pointer
+
+	// the rest of the fields are "thread local"
+	data  []unsafe.Pointer // buffer of pinned items
+	start uint32           // start index into data for adding.
+	free  uint32           // amount free, used for resizing.
+	mask  uint32           // mask for modulo indexing into data
+	bits  uint32           // number of bits in the mask
+
+	_ [16]byte
 }
 
 type ( // ensure the buffer is sized to a cache line
@@ -27,9 +31,19 @@ type ( // ensure the buffer is sized to a cache line
 	_ [machine.CacheLine - unsafe.Sizeof(buffer{})]byte
 )
 
+// newBuffer allocates a buffer with spaces for 2^bits pointers.
+func newBuffer(bits uint32) buffer {
+	var b buffer
+	b.data = make([]unsafe.Pointer, 1<<bits)
+	b.free = 1 << bits
+	b.mask = 1<<bits - 1
+	b.bits = bits
+	return b
+}
+
 // grow doubles the buffer's size
 func (b *buffer) grow() {
-	b.free += uint64(len(b.data))
+	b.free += uint32(len(b.data))
 	b.mask = b.mask<<1 | 1
 	b.bits++
 
@@ -39,11 +53,7 @@ func (b *buffer) grow() {
 }
 
 // index returns the address of the element at the given index modulo the mask.
-func (b *buffer) index(i uint64) *unsafe.Pointer {
-	debug.Assert("index out of range", func() bool {
-		return i&b.mask < uint64(len(b.data))
-	})
-
+func (b *buffer) index(i uint32) *unsafe.Pointer {
 	// relies on the data pointer being first in a slice
 	ptr := unsafe.Pointer(
 		uintptr(*(*unsafe.Pointer)(unsafe.Pointer(&b.data))) +
@@ -70,8 +80,8 @@ type unpinnedElement struct {
 	loc  Location
 }
 
-// getUnpinned reads and clears the unpinned linked list.
-func (b *buffer) getUnpinned() unsafe.Pointer {
+// consumeUnpinned reads and clears the unpinned linked list.
+func (b *buffer) consumeUnpinned() unsafe.Pointer {
 retry:
 	current := atomic.LoadPointer(&b.unpinned)
 	if current == nil {
@@ -83,8 +93,8 @@ retry:
 	return current
 }
 
-// addUnpinned adds a location to the head of the unpinned linked list.
-func (b *buffer) addUnpinned(loc Location) {
+// appendUnpinned adds a location to the head of the unpinned linked list.
+func (b *buffer) appendUnpinned(loc Location) {
 	element := &unpinnedElement{loc: loc}
 retry:
 	current := atomic.LoadPointer(&b.unpinned)

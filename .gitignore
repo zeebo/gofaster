@@ -1,2 +1,5 @@
 /upstream
 /.vscode
+*.pprof
+*.test
+analysis.log

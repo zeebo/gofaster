@@ -14,38 +14,15 @@ var pinnedData struct {
 
 // allocate the buffers with hopefully enough space
 func init() {
-	const bits = 10
+	const bits = 4
 	for i := range &pinnedData.buffers {
-		buffer := &pinnedData.buffers[i]
-		buffer.data = make([]unsafe.Pointer, 1<<bits)
-		buffer.free = 1 << bits
-		buffer.mask = 1<<bits - 1
-		buffer.bits = bits
+		pinnedData.buffers[i] = newBuffer(bits)
 	}
 }
 
 // getBuffer returns the buffer associated to the given handle id.
 func getBuffer(id uint32) *buffer {
 	return &pinnedData.buffers[id%machine.MaxThreads]
-}
-
-// Location is an abstract value returned by Pin that can be used to Unpin the
-// memory.
-type Location uint64
-
-// newLocation constructs a location that helps find some pointer.
-func newLocation(id uint32, index uint64) Location {
-	return Location(index<<machine.MaxThreadBits | uint64(id))
-}
-
-// id returns the encoded handle id inside of the location.
-func (l Location) id() uint32 {
-	return uint32(l) & (1<<machine.MaxThreadBits - 1)
-}
-
-// index returns the index into the buffer of the location.
-func (l Location) index() uint64 {
-	return uint64(l) >> machine.MaxThreadBits
 }
 
 // Pin ensures the pointer will not be garbage collected until Unpin is called
@@ -55,7 +32,7 @@ func Pin(h epoch.Handle, ptr unsafe.Pointer) Location {
 	buffer := getBuffer(h.Id())
 
 	// acquire and process any unpinned linked list items
-	unpinned := buffer.getUnpinned()
+	unpinned := buffer.consumeUnpinned()
 	for unpinned != nil {
 		element := (*unpinnedElement)(unpinned)
 		buffer.unpin(element.loc)
@@ -63,18 +40,19 @@ func Pin(h epoch.Handle, ptr unsafe.Pointer) Location {
 	}
 
 	// TODO(jeff): handle buffer shrinking :)
+	// tricky because there could be locations in the upper half.
 	if buffer.free == 0 {
 		buffer.grow()
 	}
 
-	start := buffer.start
-	end := buffer.start + uint64(len(buffer.data))
+	start := buffer.start & buffer.mask
+	end := buffer.start + uint32(len(buffer.data))
 
 	for start < end {
 		if *buffer.index(start) == nil {
 			loc := newLocation(h.Id(), start&buffer.mask)
 			buffer.pin(loc, ptr)
-			buffer.start = start + 1
+			buffer.start++
 			return loc
 		}
 		start++
@@ -87,12 +65,12 @@ func Pin(h epoch.Handle, ptr unsafe.Pointer) Location {
 // It is undefined if called multiple times on the same Location, and it is
 // not safe to use concurrently with the same Handle.
 func Unpin(h epoch.Handle, loc Location) {
-	id := h.Id()
+	id := loc.id()
 	buffer := getBuffer(id)
 
-	if id == loc.id() {
+	if id == h.Id() {
 		buffer.unpin(loc)
 	} else {
-		buffer.addUnpinned(loc)
+		buffer.appendUnpinned(loc)
 	}
 }

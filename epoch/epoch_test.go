@@ -9,8 +9,6 @@ func BenchmarkEpoch(b *testing.B) {
 		h := AcquireHandle()
 		defer ReleaseHandle(h)
 
-		b.ResetTimer()
-
 		for i := 0; i < b.N; i++ {
 			Protect(h)
 			Unprotect(h)
@@ -18,9 +16,9 @@ func BenchmarkEpoch(b *testing.B) {
 	})
 
 	b.Run("Protect+Unprotect Parallel", func(b *testing.B) {
-		b.RunParallel(func(pb *testing.PB) {
-			b.ReportAllocs()
+		b.ReportAllocs()
 
+		b.RunParallel(func(pb *testing.PB) {
 			h := AcquireHandle()
 			defer ReleaseHandle(h)
 
