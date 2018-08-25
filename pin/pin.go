@@ -74,3 +74,10 @@ func Unpin(h epoch.Handle, loc Location) {
 		buffer.appendUnpinned(loc)
 	}
 }
+
+// Read reads the pointer stored by the location. It does not require any handle,
+// can can be called concurrently with itself, but not with or after Unpin for the
+// location.
+func Read(loc Location) unsafe.Pointer {
+	return getBuffer(loc.id()).read(loc)
+}

@@ -55,10 +55,15 @@ func (b *buffer) grow() {
 // index returns the address of the element at the given index modulo the mask.
 func (b *buffer) index(i uint32) *unsafe.Pointer {
 	// relies on the data pointer being first in a slice
-	ptr := unsafe.Pointer(
-		uintptr(*(*unsafe.Pointer)(unsafe.Pointer(&b.data))) +
-			ptrSize*uintptr(i&b.mask))
+	data := *(*unsafe.Pointer)(unsafe.Pointer(&b.data))
+	ptr := unsafe.Pointer(uintptr(data) + ptrSize*uintptr(i))
 	return (*unsafe.Pointer)(ptr)
+}
+
+// pin adds the pointer to the location and decrements free.
+func (b *buffer) pin(loc Location, ptr unsafe.Pointer) {
+	*b.index(loc.index()) = ptr
+	b.free--
 }
 
 // unpin removes the location from the data, and increments free.
@@ -67,10 +72,9 @@ func (b *buffer) unpin(loc Location) {
 	b.free++
 }
 
-// pin adds the pointer to the location and decrements free.
-func (b *buffer) pin(loc Location, ptr unsafe.Pointer) {
-	*b.index(loc.index()) = ptr
-	b.free--
+// read returns the value of the pointer identified by the location.
+func (b *buffer) read(loc Location) unsafe.Pointer {
+	return *b.index(loc.index())
 }
 
 // unpinnedElement is a linked list for tracking cross thread unpin calls.

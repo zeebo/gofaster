@@ -26,6 +26,7 @@ func TestPin(t *testing.T) {
 
 	// pin the item, remove our reference, and GC
 	loc := Pin(h, unsafe.Pointer(x))
+	assert.Equal(t, Read(loc), unsafe.Pointer(x))
 	x = nil
 	runtime.GC()
 
@@ -44,7 +45,7 @@ func TestPin(t *testing.T) {
 func BenchmarkPin(b *testing.B) {
 	mem := unsafe.Pointer(new([1024]byte))
 
-	b.Run("Pin+Unpin Same Handle", func(b *testing.B) {
+	b.Run("Same Handle", func(b *testing.B) {
 		b.ReportAllocs()
 
 		h := epoch.AcquireHandle()
@@ -56,7 +57,7 @@ func BenchmarkPin(b *testing.B) {
 		}
 	})
 
-	b.Run("Pin+Unpin Different Handle", func(b *testing.B) {
+	b.Run("Different Handle", func(b *testing.B) {
 		b.ReportAllocs()
 
 		h1 := epoch.AcquireHandle()
@@ -65,14 +66,12 @@ func BenchmarkPin(b *testing.B) {
 		defer epoch.ReleaseHandle(h2)
 
 		for i := 0; i < b.N; i++ {
-			loc1, loc2, loc3 := Pin(h1, mem), Pin(h1, mem), Pin(h1, mem)
-			Unpin(h2, loc1)
-			Unpin(h2, loc2)
-			Unpin(h2, loc3)
+			loc := Pin(h1, mem)
+			Unpin(h2, loc)
 		}
 	})
 
-	b.Run("Pin+Unpin Same Handle Parallel", func(b *testing.B) {
+	b.Run("Same Handle Parallel", func(b *testing.B) {
 		b.ReportAllocs()
 
 		b.RunParallel(func(pb *testing.PB) {
@@ -86,7 +85,7 @@ func BenchmarkPin(b *testing.B) {
 		})
 	})
 
-	b.Run("Pin+Unpin Different Handle Parallel", func(b *testing.B) {
+	b.Run("Different Handle Parallel", func(b *testing.B) {
 		index := uint64(0)
 		hs := make([]epoch.Handle, machine.MaxThreads)
 		for i := range hs {
