@@ -4,6 +4,7 @@ const (
 	CacheLine     = 64
 	MaxThreadBits = 5
 	MaxThreads    = 1 << MaxThreadBits
+	MaxSlice      = 1<<50 - 1
 )
 
 type ( // ensure MaxThreads is actually 32.

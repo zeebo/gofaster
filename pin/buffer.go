@@ -5,6 +5,7 @@ import (
 	"unsafe"
 
 	"github.com/zeebo/gofaster/internal/machine"
+	"github.com/zeebo/gofaster/internal/risky"
 )
 
 const (
@@ -52,12 +53,9 @@ func (b *buffer) grow() {
 	b.data = next
 }
 
-// index returns the address of the element at the given index modulo the mask.
+// index returns a pointer the ith pointer in the buffer.
 func (b *buffer) index(i uint32) *unsafe.Pointer {
-	// relies on the data pointer being first in a slice
-	data := *(*unsafe.Pointer)(unsafe.Pointer(&b.data))
-	ptr := unsafe.Pointer(uintptr(data) + ptrSize*uintptr(i))
-	return (*unsafe.Pointer)(ptr)
+	return risky.Index(unsafe.Pointer(&b.data), ptrSize, uintptr(i))
 }
 
 // pin adds the pointer to the location and decrements free.
