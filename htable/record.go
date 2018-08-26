@@ -3,26 +3,31 @@ package htable
 import (
 	"unsafe"
 
-	"github.com/zeebo/gofaster/internal/machine"
+	"github.com/zeebo/gofaster/internal/risky"
 )
 
+// record keeps track of a key value pair with some metadata, where the key and
+// value are allocated directly after the metadata.
 type record struct {
 	key uint64
 	val uint64
 	// key and value data follows directly in memory
 }
 
-const recordSize = 16 // we use an untyped constant on purpose
+const recordSize = unsafe.Sizeof(record{})
 
-type ( // assert that our untyped constant matches the actual size
-	_ [recordSize - unsafe.Sizeof(record{})]byte
-	_ [unsafe.Sizeof(record{}) - recordSize]byte
+type ( // make sure the alignment is what we expect for alloc
+	_ [8 - unsafe.Alignof(record{})]byte
+	_ [unsafe.Alignof(record{}) - 8]byte
 )
 
-func newRecord(key, val []byte) (rec *record) {
-	buf := make([]byte, recordSize+len(key)+len(val))
+// newRecord constructs a record with the key and value directly next to each other
+// in memory.
+func newRecord(key, val []byte) *record {
+	buf := risky.Alloc8(int(recordSize) + len(key) + len(val))
 
-	rec = (*record)(unsafe.Pointer(&buf[0]))
+	// relies on the data pointer being first in a slice
+	rec := *(**record)(unsafe.Pointer(&buf))
 	rec.key = uint64(len(key))
 	rec.val = uint64(len(val))
 
@@ -32,13 +37,17 @@ func newRecord(key, val []byte) (rec *record) {
 	return rec
 }
 
-func (r *record) indexBytes(offset uintptr) *[machine.MaxSlice]byte {
-	return (*[machine.MaxSlice]byte)(unsafe.Pointer(uintptr(unsafe.Pointer(r)) + offset))
+// slice returns a byte starting offset bytes past the record, with the given length.
+func (r *record) slice(offset uintptr, length int) []byte {
+	return risky.Slice(unsafe.Pointer(uintptr(unsafe.Pointer(r))+offset), length)
 }
 
-func (r *record) keyOffset() uintptr { return recordSize }
-func (r *record) valOffset() uintptr { return recordSize + uintptr(r.key) }
+// Key returns a byte slice containing the key in the record.
+func (r *record) Key() []byte {
+	return r.slice(recordSize, int(r.key))
+}
 
-// TODO(jeff): remove bounds checks on these calls
-func (r *record) Key() []byte { return r.indexBytes(r.keyOffset())[:r.key:r.key] }
-func (r *record) Val() []byte { return r.indexBytes(r.valOffset())[:r.val:r.val] }
+// Val returns a byte slice containing the value in the record.
+func (r *record) Val() []byte {
+	return r.slice(recordSize+uintptr(r.key), int(r.val))
+}
