@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	"github.com/zeebo/gofaster/internal/assert"
+	"github.com/zeebo/gofaster/pin"
 )
 
 func TestRecord(t *testing.T) {
 	t.Run("Basic", func(t *testing.T) {
-		rec := newRecord([]byte("key"), []byte("value"))
+		rec := newRecord(pin.Location(1), []byte("key"), []byte("value"))
+		assert.Equal(t, rec.next, pin.Location(1))
 		assert.Equal(t, rec.key, 3)
 		assert.Equal(t, rec.val, 5)
 		assert.Equal(t, string(rec.Key()), "key")
