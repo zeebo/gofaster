@@ -101,15 +101,20 @@ func BenchmarkPin(b *testing.B) {
 			i := atomic.AddUint64(&index, 1) - 1
 			h := hs[i]
 			p := pcg.New(i, uint64(time.Now().UnixNano()))
+			m := unsafe.Pointer(new([1024]byte))
 
 			// start loopin!
 			for pb.Next() {
-				loc := Pin(h, mem)
+				loc := Pin(h, m)
+				assert.Equal(b, Read(loc), m)
 
 				// Unpin can be called concurrently with the same handle
 				// so we are safe to pick a random one to stress test.
 				hu := hs[p.Uint32()%machine.MaxThreads]
 				Unpin(hu, loc)
+				if hu == h {
+					assert.That(b, Read(loc) == nil)
+				}
 			}
 		})
 	})

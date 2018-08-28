@@ -25,12 +25,11 @@ type ( // make sure the alignment is what we expect for alloc
 
 // newRecord constructs a record with the key and value directly next to each other
 // in memory.
-func newRecord(next pin.Location, key, val []byte) *record {
+func newRecord(key, val []byte) *record {
 	buf := risky.Alloc8(int(recordSize) + len(key) + len(val))
 
 	// relies on the data pointer being first in a slice
 	rec := *(**record)(unsafe.Pointer(&buf))
-	rec.next = next
 	rec.key = uint64(len(key))
 	rec.val = uint64(len(val))
 

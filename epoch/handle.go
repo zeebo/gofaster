@@ -1,6 +1,7 @@
 package epoch
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	"github.com/zeebo/gofaster/internal/machine"
@@ -16,6 +17,9 @@ var handleData struct {
 type Handle struct {
 	id uint32
 }
+
+// String is a string representation of the handle.
+func (h Handle) String() string { return fmt.Sprintf("{id:%d}", h.Id()) }
 
 // Id returns a numeric id that uniquely identifies the handle.
 func (h Handle) Id() uint32 { return h.id }

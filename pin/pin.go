@@ -1,6 +1,7 @@
 package pin
 
 import (
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/zeebo/gofaster/epoch"
@@ -14,7 +15,7 @@ var pinnedData struct {
 
 // allocate the buffers with hopefully enough space
 func init() {
-	const bits = 4
+	const bits = 8
 	for i := range &pinnedData.buffers {
 		pinnedData.buffers[i] = newBuffer(bits)
 	}
@@ -49,7 +50,7 @@ func Pin(h epoch.Handle, ptr unsafe.Pointer) Location {
 	end := buffer.start + uint32(len(buffer.data))
 
 	for start < end {
-		if *buffer.index(start) == nil {
+		if atomic.LoadPointer(buffer.index(start&buffer.mask)) == nil {
 			loc := newLocation(h.Id(), start&buffer.mask)
 			buffer.pin(loc, ptr)
 			buffer.start++

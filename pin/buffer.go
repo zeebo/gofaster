@@ -17,7 +17,9 @@ type buffer struct {
 	// linked list of unpinned locations. atomic/concurrent
 	unpinned unsafe.Pointer
 
-	// the rest of the fields are "thread local"
+	// the rest of the fields are "thread local", though we use atomics anyway
+	// to appease the race detector.
+
 	data  []unsafe.Pointer // buffer of pinned items
 	start uint32           // start index into data for adding.
 	free  uint32           // amount free, used for resizing.
@@ -44,12 +46,16 @@ func newBuffer(bits uint32) buffer {
 
 // grow doubles the buffer's size
 func (b *buffer) grow() {
-	b.free += uint32(len(b.data))
-	b.mask = b.mask<<1 | 1
-	b.bits++
+	// ugh all these atomics
+	atomic.AddUint32(&b.free, uint32(len(b.data)))
+	atomic.AddUint32(&b.mask, atomic.LoadUint32(&b.mask))
+	atomic.AddUint32(&b.mask, 1)
+	atomic.AddUint32(&b.bits, 1)
 
 	next := make([]unsafe.Pointer, 2*len(b.data))
 	copy(next, b.data)
+
+	// UGH need to do this with atomics. one pointer + 2 uint64 calls?
 	b.data = next
 }
 
@@ -60,19 +66,22 @@ func (b *buffer) index(i uint32) *unsafe.Pointer {
 
 // pin adds the pointer to the location and decrements free.
 func (b *buffer) pin(loc Location, ptr unsafe.Pointer) {
-	*b.index(loc.index()) = ptr
-	b.free--
+	if !atomic.CompareAndSwapPointer(b.index(loc.index()), nil, ptr) {
+		panic("double pin")
+	}
+	// atomic.StorePointer(b.index(loc.index()), ptr)
+	atomic.AddUint32(&b.free, ^uint32(0))
 }
 
 // unpin removes the location from the data, and increments free.
 func (b *buffer) unpin(loc Location) {
-	*b.index(loc.index()) = nil
-	b.free++
+	atomic.StorePointer(b.index(loc.index()), nil)
+	atomic.AddUint32(&b.free, 1)
 }
 
 // read returns the value of the pointer identified by the location.
 func (b *buffer) read(loc Location) unsafe.Pointer {
-	return *b.index(loc.index())
+	return atomic.LoadPointer(b.index(loc.index()))
 }
 
 // unpinnedElement is a linked list for tracking cross thread unpin calls.

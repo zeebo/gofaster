@@ -1,10 +1,8 @@
 package epoch
 
 import (
-	"fmt"
-	"os"
+	"runtime"
 	"sync/atomic"
-	"time"
 
 	"github.com/zeebo/gofaster/internal/machine"
 )
@@ -43,21 +41,26 @@ func init() {
 
 // getEntry returns the entry bound to the given handle id.
 func getEntry(id uint32) *entry {
+	id *= 8
+	id += id / machine.MaxThreads
 	return &epochData.entries[id%machine.MaxThreads]
 }
 
-// Protect enters the protected region of the epoch.
+// Protect enters the protected region of the epoch. It may be called multiple times with only
+// one Unprotect necessary.
 func Protect(h Handle) uint64 {
 	entry := getEntry(h.Id())
-	entry.local = atomic.LoadUint64(&epochData.current)
-	return entry.local
+	current := atomic.LoadUint64(&epochData.current)
+	atomic.StoreUint64(&entry.local, current)
+	return current
 }
 
 // ProtectAndDrain enters the protected region of the epoch, draining any triggers if possible.
+// It may be called multiple times with only one Unprotect necessary.
 func ProtectAndDrain(h Handle) uint64 {
 	epoch := Protect(h)
 	if atomic.LoadUint64(&epochData.trigger_count) > 0 {
-		Drain(epoch)
+		Drain(h, epoch)
 	}
 	return epoch
 }
@@ -65,46 +68,50 @@ func ProtectAndDrain(h Handle) uint64 {
 // IsProtected returns if the handle is in the protected region.
 func IsProtected(h Handle) bool {
 	entry := getEntry(h.Id())
-	return entry.local != 0
+	return atomic.LoadUint64(&entry.local) != 0
+}
+
+// LocalEpoch returns the local epoch for the handle.
+func LocalEpoch(h Handle) uint64 {
+	entry := getEntry(h.Id())
+	return atomic.LoadUint64(&entry.local)
 }
 
 // Unprotect exits the protected region.
 func Unprotect(h Handle) {
 	entry := getEntry(h.Id())
-	entry.local = 0
+	atomic.StoreUint64(&entry.local, 0)
 }
 
 // Drain runs any triggers that are safe to run. The provided epoch is used as an
 // initial epoch for computing which epoch is safe.
-func Drain(epoch uint64) {
-	ComputeSafe(epoch)
+func Drain(h Handle, epoch uint64) {
+	safe := ComputeSafe(epoch)
 
 	for i := range &epochData.triggers {
 		trigger := &epochData.triggers[i]
 		epoch := trigger.Epoch()
-		safe := atomic.LoadUint64(&epochData.safe)
-
-		if epoch <= safe &&
-			trigger.Run(epoch) &&
-			atomic.AddUint64(&epochData.trigger_count, ^uint64(0)) == 0 {
-
-			break
+		if epoch <= safe && trigger.Run(h, epoch) {
+			if atomic.AddUint64(&epochData.trigger_count, ^uint64(0)) == 0 {
+				break
+			}
 		}
 	}
 }
 
 // Bump increments the global epoch, draining any triggers that can be drained.
-func Bump() uint64 {
+func Bump(h Handle) uint64 {
 	epoch := atomic.AddUint64(&epochData.current, 1)
 	if atomic.LoadUint64(&epochData.trigger_count) > 0 {
-		Drain(epoch)
+		Drain(h, epoch)
 	}
 	return epoch
 }
 
 // BumpWith increments the global epoch and adds the action into the trigger queue.
-func BumpWith(action func()) uint64 {
-	prior := Bump() - 1
+func BumpWith(h Handle, action func(Handle)) uint64 {
+retry:
+	prior := Bump(h) - 1
 	failures := 0
 
 finished:
@@ -112,32 +119,34 @@ finished:
 		for i := range &epochData.triggers {
 			trigger := &epochData.triggers[i]
 			epoch := trigger.Epoch()
+			safe := atomic.LoadUint64(&epochData.safe)
 
-			if epoch == triggerFree && trigger.Store(epoch, action) {
+			if epoch == triggerFree && trigger.Store(prior, action) {
+				atomic.AddUint64(&epochData.trigger_count, 1)
 				break finished
 			}
 
-			safe := atomic.LoadUint64(&epochData.safe)
-			if epoch <= safe && trigger.Swap(epoch, prior, action) {
+			if epoch <= safe && trigger.Swap(h, epoch, prior, action) {
 				break finished
 			}
 		}
 
 		failures++
 		if failures == 500 {
-			failures = 0
-			fmt.Fprintln(os.Stderr, "Slowdown: Unable to add trigger to epoch")
-			time.Sleep(time.Second)
+			ComputeSafe(Protect(h))
+			runtime.Gosched()
+			goto retry
 		}
 	}
 
-	atomic.AddUint64(&epochData.trigger_count, 1)
 	return prior + 1
 }
 
 // ComputeSafe finds the current safe epoch across all the entries, using the
 // provided epoch as an initial value.
 func ComputeSafe(epoch uint64) uint64 {
+	safe := atomic.LoadUint64(&epochData.safe)
+
 	oldest := epoch
 	for i := range &epochData.entries {
 		local := atomic.LoadUint64(&epochData.entries[i].local)
@@ -145,6 +154,11 @@ func ComputeSafe(epoch uint64) uint64 {
 			oldest = local
 		}
 	}
-	atomic.StoreUint64(&epochData.safe, oldest-1)
-	return oldest - 1
+	oldest--
+
+	if oldest <= safe || !atomic.CompareAndSwapUint64(&epochData.safe, safe, oldest) {
+		return safe
+	}
+
+	return oldest
 }

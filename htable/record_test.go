@@ -10,8 +10,7 @@ import (
 
 func TestRecord(t *testing.T) {
 	t.Run("Basic", func(t *testing.T) {
-		rec := newRecord(pin.Location(1), []byte("key"), []byte("value"))
-		assert.Equal(t, rec.next, pin.Location(1))
+		rec := newRecord([]byte("key"), []byte("value"))
 		assert.Equal(t, rec.key, 3)
 		assert.Equal(t, rec.val, 5)
 		assert.Equal(t, string(rec.Key()), "key")
@@ -19,10 +18,18 @@ func TestRecord(t *testing.T) {
 	})
 
 	t.Run("Only Basic", func(t *testing.T) {
+		locationType := reflect.TypeOf(pin.Location{})
 		rv := reflect.TypeOf(record{})
 
 		for i := 0; i < rv.NumField(); i++ {
-			switch field := rv.Field(i); field.Type.Kind() {
+			field := rv.Field(i)
+
+			// pin.Location is known to be fine
+			if field.Type == locationType {
+				continue
+			}
+
+			switch field.Type.Kind() {
 			case reflect.Ptr, reflect.Map, reflect.Chan, reflect.Slice,
 				reflect.Struct, reflect.Func, reflect.Interface:
 
